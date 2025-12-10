@@ -127,41 +127,70 @@ jobs:
         id: diff
         run: |
           mkdir -p diffs
+          mkdir -p base_norm
 
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
 
           while IFS= read -r file; do
             if [ -f "$file" ]; then
+              BASENAME=$(basename "$file")
               NORM_FILE="${file%.yml}.norm.yml"
               NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
+              BASE_NORM_FILE="base_norm/${BASENAME%.yml}.norm.yml"
+              BASE_NORM_FILE="${BASE_NORM_FILE%.yaml}.norm.yml"
+              DIFF_FILE="diffs/${BASENAME%.yml}_diff.txt"
+              DIFF_FILE="${DIFF_FILE%.yaml}_diff.txt"
 
-              if [ -f "$NORM_FILE" ]; then
-                BASENAME=$(basename "$file")
-                DIFF_FILE="diffs/${BASENAME%.yml}_diff.txt"
+              echo "📊 Generating diff for $file..."
 
-                echo "📊 Generating diff for $NORM_FILE..."
+              # base ブランチの元ファイルが存在するか確認
+              if git cat-file -e $BASE_SHA:"$file" 2>/dev/null; then
+                # base ブランチの .yml を取得
+                echo "  📥 Fetching base version of $file..."
+                git show $BASE_SHA:"$file" > "base_norm/${BASENAME}"
 
-                # base ブランチの .norm.yml と比較
-                if git cat-file -e $BASE_SHA:"$NORM_FILE" 2>/dev/null; then
-                  git diff $BASE_SHA HEAD -- "$NORM_FILE" > "$DIFF_FILE" || true
-                else
-                  # 新規ファイルの場合は全体を diff として扱う
+                # base ブランチの .yml を正規化
+                echo "  🔄 Normalizing base version..."
+                python scripts/normalize_dify.py "base_norm/${BASENAME}" "$BASE_NORM_FILE"
+
+                # 正規化後のファイル同士を比較
+                if [ -f "$NORM_FILE" ] && [ -f "$BASE_NORM_FILE" ]; then
+                  echo "  ⚖️  Comparing normalized files..."
+                  diff -u "$BASE_NORM_FILE" "$NORM_FILE" > "$DIFF_FILE" || true
+
+                  if [ -s "$DIFF_FILE" ]; then
+                    LINE_COUNT=$(wc -l < "$DIFF_FILE")
+                    echo "  ✅ Diff generated: $DIFF_FILE ($LINE_COUNT lines)"
+                  else
+                    echo "  ℹ️  No diff after normalization"
+                    rm -f "$DIFF_FILE"
+                  fi
+                fi
+              else
+                # 新規ファイルの場合は全体を diff として扱う
+                echo "  ℹ️  New file detected, treating as full addition"
+                if [ -f "$NORM_FILE" ]; then
                   echo "--- /dev/null" > "$DIFF_FILE"
                   echo "+++ $NORM_FILE" >> "$DIFF_FILE"
                   cat "$NORM_FILE" | sed 's/^/+/' >> "$DIFF_FILE"
-                fi
-
-                if [ -s "$DIFF_FILE" ]; then
-                  echo "✅ Diff generated: $DIFF_FILE"
-                else
-                  rm "$DIFF_FILE"
+                  echo "  ✅ Diff generated: $DIFF_FILE (new file)"
                 fi
               fi
             fi
           done <<< "${{ steps.find-files.outputs.changed_files }}"
 
+          # 生成された差分ファイルの数を確認
+          DIFF_COUNT=$(ls -1 diffs/*_diff.txt 2>/dev/null | wc -l)
+          echo "📊 Total diffs generated: $DIFF_COUNT"
+
+          if [ "$DIFF_COUNT" -eq 0 ]; then
+            echo "has_meaningful_diff=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_meaningful_diff=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: 🤖 Analyze diff with LLM
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.diff.outputs.has_meaningful_diff == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_MODEL: gpt-4o-mini
@@ -174,7 +203,7 @@ jobs:
           done
 
       - name: 💬 Comment LLM analysis
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.diff.outputs.has_meaningful_diff == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -224,14 +253,46 @@ jobs:
               }
             }
 
-      - name: ✅ No changes detected
-        if: steps.find-files.outputs.no_changes == 'true' || steps.normalize.outputs.has_new_norm != 'true'
+      - name: ✅ No YAML files changed
+        if: steps.find-files.outputs.no_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = '## ℹ️ Dify DSL 差分チェック\n\n' +
+              'このPRではDify DSL（`.yml`/`.yaml`）ファイルの変更がありません。\n\n' +
+              '_チェック対象: `.yml`, `.yaml` ファイル（`.norm.yml` を除く）_\n';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+
+      - name: ℹ️ UI metadata only changes
+        if: steps.find-files.outputs.no_changes != 'true' && steps.diff.outputs.has_meaningful_diff != 'true'
         uses: actions/github-script@v7
         with:
           script: |
             const comment = '## ✅ Dify DSL 差分チェック完了\n\n' +
-              '正規化後の差分は検出されませんでした。\n\n' +
-              '_UI メタデータのみの変更、または変更なし_\n';
+              '**結果**: 正規化後の差分は **0行** でした。\n\n' +
+              '### 📊 判定理由\n\n' +
+              'このPRの変更は以下のいずれかです：\n' +
+              '- 🎨 **UI メタデータのみの変更**（`position`, `selected`, `viewport` など）\n' +
+              '- 📏 **フォーマットのみの変更**（インデント、改行など）\n\n' +
+              '### ✅ 影響評価\n\n' +
+              '**処理ロジックへの影響: なし**\n\n' +
+              'これらの変更は Dify の実行結果に影響しません。安全にマージできます。\n\n' +
+              '---\n\n' +
+              '<details>\n' +
+              '<summary>📖 詳細説明</summary>\n\n' +
+              '正規化処理では以下のフィールドを除外しています：\n' +
+              '- `position`, `positionAbsolute` - ノードの座標\n' +
+              '- `width`, `height` - ノードのサイズ\n' +
+              '- `selected`, `zIndex` - UI の選択状態\n' +
+              '- `viewport` - Canvas の表示位置\n\n' +
+              'これらを除外した結果、差分がなくなったため、**UI レイアウトのみの変更**と判定されました。\n' +
+              '</details>\n';
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -241,9 +302,11 @@ jobs:
             });
 
       - name: 📤 Upload artifacts
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.diff.outputs.has_meaningful_diff == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dify-diff-analysis
-          path: diffs/
+          path: |
+            diffs/
+            base_norm/
           retention-days: 7
