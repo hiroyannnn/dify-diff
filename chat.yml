@@ -79,14 +79,25 @@ workflow:
       target: answer
       targetHandle: target
       type: custom
+    - data:
+        isInLoop: false
+        sourceType: start
+        targetType: llm
+      id: 1751895512731-source-1765185537128-target
+      source: '1751895512731'
+      sourceHandle: source
+      target: '1765185537128'
+      targetHandle: target
+      type: custom
+      zIndex: 0
     nodes:
     - data:
         desc: ''
-        selected: true
+        selected: false
         title: 開始
         type: start
         variables: []
-      height: 54
+      height: 73
       id: '1751895512731'
       position:
         x: 80
@@ -94,11 +105,11 @@ workflow:
       positionAbsolute:
         x: 80
         y: 282
-      selected: true
+      selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 244
+      width: 242
     - data:
         context:
           enabled: false
@@ -131,19 +142,19 @@ workflow:
         variables: []
         vision:
           enabled: false
-      height: 90
+      height: 88
       id: llm
       position:
-        x: 379
-        y: 282
+        x: 291
+        y: 128
       positionAbsolute:
-        x: 379
-        y: 282
+        x: 291
+        y: 128
       selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 244
+      width: 242
     - data:
         answer: '{{#llm.text#}}'
         desc: ''
@@ -151,21 +162,53 @@ workflow:
         title: 回答
         type: answer
         variables: []
-      height: 105
+      height: 103
       id: answer
       position:
-        x: 680
-        y: 282
+        x: 407
+        y: 438
       positionAbsolute:
-        x: 680
-        y: 282
+        x: 407
+        y: 438
       selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 244
+      width: 242
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: gemini-2.5-pro
+          provider: langgenius/gemini/google
+        prompt_template:
+        - id: b926b9d0-4427-4078-be2f-1b0d0f7f595d
+          role: system
+          text: hi
+        selected: true
+        title: LLM 2
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1765185537128'
+      position:
+        x: 352
+        y: 327
+      positionAbsolute:
+        x: 352
+        y: 327
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
     viewport:
-      x: 0
-      y: 0
+      x: -181
+      y: 120
       zoom: 1
   rag_pipeline_variables: []
