@@ -1,0 +1,249 @@
+name: Dify DSL Diff Check
+
+on:
+  pull_request:
+    paths:
+      - '**.yml'
+      - '**.yaml'
+      - '!**.norm.yml'  # .norm.yml の変更では実行しない（無限ループ防止）
+    branches:
+      - main
+      - master
+
+  # 手動実行も可能にする
+  workflow_dispatch:
+
+# 同じ PR で複数の workflow が走らないようにする
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write       # .norm.yml をコミットするために必要
+  pull-requests: write  # PR にコメントを投稿するために必要
+
+jobs:
+  normalize-and-analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔍 Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}  # PR のブランチをチェックアウト
+          fetch-depth: 0  # 全履歴を取得（base との比較のため）
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: 📂 Find changed YAML files
+        id: find-files
+        run: |
+          # main ブランチとの差分で変更された YAML ファイルを検索（.norm.yml を除く）
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD | grep -E '\.(yml|yaml)$' | grep -v '\.norm\.yml$' || true)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "no_changes=true" >> $GITHUB_OUTPUT
+            echo "ℹ️  No YAML files changed"
+            exit 0
+          fi
+
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "📄 Changed YAML files:"
+          echo "$CHANGED_FILES"
+
+      - name: 🔄 Generate normalized files
+        if: steps.find-files.outputs.no_changes != 'true'
+        id: normalize
+        run: |
+          HAS_NEW_NORM=false
+
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              # .norm.yml ファイル名を生成
+              NORM_FILE="${file%.yml}.norm.yml"
+              NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
+
+              echo "🔄 Normalizing $file → $NORM_FILE"
+              python scripts/normalize_dify.py "$file" "$NORM_FILE"
+
+              # 新しく生成されたか、または変更があるかチェック
+              if ! git diff --quiet "$NORM_FILE" 2>/dev/null; then
+                HAS_NEW_NORM=true
+              fi
+            fi
+          done <<< "${{ steps.find-files.outputs.changed_files }}"
+
+          echo "has_new_norm=$HAS_NEW_NORM" >> $GITHUB_OUTPUT
+
+      - name: 💾 Commit normalized files
+        if: steps.normalize.outputs.has_new_norm == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          git add *.norm.yml
+          git commit -m "chore: Update normalized DSL files [skip ci]" || echo "Nothing to commit"
+
+          git push
+
+          echo "✅ Normalized files committed and pushed"
+
+      - name: 💬 Comment about normalization
+        if: steps.normalize.outputs.has_new_norm == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = '## 🔄 Dify DSL 正規化完了\n\n' +
+              '✅ 正規化ファイル（`.norm.yml`）を自動生成しました。\n\n' +
+              '### 📊 差分の確認方法\n\n' +
+              '1. **Files changed** タブを開く\n' +
+              '2. `.norm.yml` ファイルを探す\n' +
+              '3. **UI メタデータ（position, selected など）が除外された差分**を確認できます\n\n' +
+              '> 💡 `.norm.yml` は正規化後のファイルです。元の `.yml` ファイルと並べて確認してください。\n\n' +
+              '⏳ **LLM による意味解析を実行中...**\n';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+
+      - name: 📊 Generate diff for LLM analysis
+        if: steps.normalize.outputs.has_new_norm == 'true'
+        id: diff
+        run: |
+          mkdir -p diffs
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              NORM_FILE="${file%.yml}.norm.yml"
+              NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
+
+              if [ -f "$NORM_FILE" ]; then
+                BASENAME=$(basename "$file")
+                DIFF_FILE="diffs/${BASENAME%.yml}_diff.txt"
+
+                echo "📊 Generating diff for $NORM_FILE..."
+
+                # base ブランチの .norm.yml と比較
+                if git cat-file -e $BASE_SHA:"$NORM_FILE" 2>/dev/null; then
+                  git diff $BASE_SHA HEAD -- "$NORM_FILE" > "$DIFF_FILE" || true
+                else
+                  # 新規ファイルの場合は全体を diff として扱う
+                  echo "--- /dev/null" > "$DIFF_FILE"
+                  echo "+++ $NORM_FILE" >> "$DIFF_FILE"
+                  cat "$NORM_FILE" | sed 's/^/+/' >> "$DIFF_FILE"
+                fi
+
+                if [ -s "$DIFF_FILE" ]; then
+                  echo "✅ Diff generated: $DIFF_FILE"
+                else
+                  rm "$DIFF_FILE"
+                fi
+              fi
+            fi
+          done <<< "${{ steps.find-files.outputs.changed_files }}"
+
+      - name: 🤖 Analyze diff with LLM
+        if: steps.normalize.outputs.has_new_norm == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_MODEL: gpt-4o-mini
+        run: |
+          for diff_file in diffs/*_diff.txt; do
+            if [ -f "$diff_file" ]; then
+              echo "🤖 Analyzing $diff_file with LLM..."
+              python scripts/llm_diff_analyzer.py "$diff_file" || echo "⚠️  LLM analysis failed for $diff_file"
+            fi
+          done
+
+      - name: 💬 Comment LLM analysis
+        if: steps.normalize.outputs.has_new_norm == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const diffsDir = 'diffs';
+
+            // diffs ディレクトリが存在しない場合
+            if (!fs.existsSync(diffsDir)) {
+              console.log('No diffs directory found');
+              return;
+            }
+
+            const analysisFiles = fs.readdirSync(diffsDir).filter(f => f.endsWith('_analysis.md'));
+
+            if (analysisFiles.length === 0) {
+              const comment = '## ⚠️ LLM 解析エラー\n\n' +
+                'LLM 解析に失敗しました。\n\n' +
+                '**考えられる原因:**\n' +
+                '- `OPENAI_API_KEY` が設定されていない\n' +
+                '- API の使用量制限に達している\n' +
+                '- OpenAI API に一時的な障害が発生している\n\n' +
+                '**対処方法:**\n' +
+                '1. GitHub リポジトリの Settings > Secrets で `OPENAI_API_KEY` を確認\n' +
+                '2. OpenAI のダッシュボードで使用量を確認\n' +
+                '3. [OpenAI Status](https://status.openai.com/) でサービス状況を確認\n\n' +
+                '> 💡 LLM 解析なしでも、**Files changed** タブで `.norm.yml` の差分を確認できます。\n';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            } else {
+              for (const analysisFile of analysisFiles) {
+                const analysisPath = path.join(diffsDir, analysisFile);
+                const analysisContent = fs.readFileSync(analysisPath, 'utf8');
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: analysisContent
+                });
+              }
+            }
+
+      - name: ✅ No changes detected
+        if: steps.find-files.outputs.no_changes == 'true' || steps.normalize.outputs.has_new_norm != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = '## ✅ Dify DSL 差分チェック完了\n\n' +
+              '正規化後の差分は検出されませんでした。\n\n' +
+              '_UI メタデータのみの変更、または変更なし_\n';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+
+      - name: 📤 Upload artifacts
+        if: steps.normalize.outputs.has_new_norm == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dify-diff-analysis
+          path: diffs/
+          retention-days: 7
