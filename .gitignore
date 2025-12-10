@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+/tmp/
+/temp/
+*.tmp
+
+# GitHub Actions artifacts
+/normalized/
+/previous/
+/previous_normalized/
+/diffs/
+
+# Logs
+*.log

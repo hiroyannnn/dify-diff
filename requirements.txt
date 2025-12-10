@@ -1,0 +1,10 @@
+# Dify DSL Diff Check - Python Dependencies
+
+# YAML処理
+ruamel.yaml>=0.18.0
+
+# LLM解析
+openai>=1.0.0
+
+# オプション: より高度な差分解析が必要な場合
+# deepdiff>=6.0.0
