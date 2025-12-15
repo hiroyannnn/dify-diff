@@ -117,7 +117,7 @@ JSON 形式で以下の構造を返してください：
 """
 
 
-def analyze_diff_with_llm(diff_text: str, model: str = "gpt-4o-mini") -> dict:
+def analyze_diff_with_llm(diff_text: str, model: str = "gpt-5.1") -> dict:
     """
     LLM で差分を解析
 
