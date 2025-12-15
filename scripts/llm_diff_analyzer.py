@@ -26,6 +26,7 @@ except ImportError:
 
 
 SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です。
+変更内容を事実ベースで分かりやすく整理し、ユーザーが YAML diff を読む前に概要を把握できるようにしてください。
 
 # 無視すべき差分（UI メタデータ）
 - position, positionAbsolute (ノード座標)
@@ -38,25 +39,35 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
 これらは「見栄えの変更」であり、処理に影響しないため無視してください。
 
 # 重要な差分（処理に影響）
-- nodes[].data.model.* (AI モデル設定)
-- nodes[].data.prompt_template (プロンプト内容)
-- nodes[].data.completion_params (生成パラメータ)
-- edges[] の追加・削除 (ワークフロー接続)
-- features.*.enabled (機能 ON/OFF)
-- variables, environment_variables (変数定義)
+- workflow.graph.nodes[].data.model.* (AI モデル設定)
+- workflow.graph.nodes[].data.prompt_template (プロンプト内容)
+- workflow.graph.nodes[].data.completion_params (生成パラメータ)
+- workflow.graph.edges[] (ワークフロー接続)
+- workflow.features.*.enabled (機能 ON/OFF)
+- workflow.conversation_variables, workflow.environment_variables (変数定義)
 - dependencies[] (プラグイン依存)
 
 # 解析時の必須要件
 
-1. **具体的な値を抽出**
+1. **YAMLパスを明記**
+   - 変更箇所をYAMLパス表記で示す（例: `workflow.graph.edges[0]`, `workflow.graph.nodes[2].data.type`）
+   - 配列のインデックスは実際の位置を示す（0始まり）
+   - ネストした構造も明確に表現
+
+2. **差分の行番号を抽出**
+   - diff の @@ 行から行番号情報を取得
+   - 各変更がファイルの何行目付近にあるかを明記
+   - 例: "L142-L145" のような形式で表示
+
+3. **具体的な値を抽出**
    - 変更前の値（Before）と変更後の値（After）を明示
    - 例: "gemini-2.5-flash-preview-05-20 → gemini-2.5-flash"
 
-2. **変更箇所数をカウント**
+4. **変更箇所数をカウント**
    - 同じ変更が複数箇所にある場合は件数を明記
    - 例: "10個のLLMノードで変更"
 
-3. **統計情報を計算**
+5. **統計情報を計算**
    - 差分の総行数（+ と - で始まる行を実際に数える）
    - 追加行数（+ で始まる行を実際に数える）
    - 削除行数（- で始まる行を実際に数える）
@@ -64,18 +75,17 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
    - 影響を受けるエッジ数（edges 配列の変更を実際に数える）
    - ⚠️ 例の数値をそのまま使わないでください。必ず実際の差分から計算してください。
 
-4. **パターンを検出**
+6. **パターンを検出**
    - 一括変更の可能性（同じ変更が複数箇所）
    - 関連する変更のグループ化
-
-5. **具体的なアクションを提示**
-   - チェックリスト形式で"何を確認すべきか"
-   - "なぜその確認が必要か"の理由
 
 # 出力形式
 JSON 形式で以下の構造を返してください：
 
-⚠️ **重要**: statistics の値は必ず実際の差分から数えてください。例の数値を使わないでください。
+⚠️ **重要**:
+- statistics の値は必ず実際の差分から数えてください。例の数値を使わないでください。
+- アドバイスや推奨事項は含めないでください。事実のみを記載してください。
+- yaml_path は具体的な階層構造を示してください（例: workflow.graph.nodes[0].data.model.name）
 
 {
   "summary": "変更内容の要約（日本語、1-2文、具体的な技術用語を含める）",
@@ -89,13 +99,12 @@ JSON 形式で以下の構造を返してください：
   "changes": [
     {
       "type": "added|modified|removed",
-      "impact": "high|medium|low",
-      "area": "model|prompt|features|graph|config|dependencies|variables",
+      "yaml_path": "workflow.graph.nodes[0].data.model.name",
+      "location": "変更箇所の行番号（例: L142-L145）",
       "description": "具体的な変更内容（Before → After の形式で記載）",
       "before_value": "変更前の具体的な値（該当する場合）",
       "after_value": "変更後の具体的な値（該当する場合）",
-      "count": 1,
-      "action": "要レビュー|確認推奨|無視可"
+      "count": 1
     }
   ],
   "patterns": [
@@ -103,16 +112,7 @@ JSON 形式で以下の構造を返してください：
       "description": "検出されたパターン（例: 一括変更、プロバイダー移行）",
       "occurrences": <そのパターンが実際に出現した回数>
     }
-  ],
-  "overall_impact": "high|medium|low",
-  "recommendation": {
-    "immediate_actions": [
-      "即座に確認すべき項目（チェックリスト形式）"
-    ],
-    "review_questions": [
-      "レビュー時に確認すべき質問"
-    ]
-  }
+  ]
 }
 """
 
@@ -170,13 +170,6 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
     Returns:
         Markdown 形式の文字列
     """
-    # Impact のアイコン
-    impact_icons = {
-        "high": "🔴",
-        "medium": "🟡",
-        "low": "🟢"
-    }
-
     # Type のアイコン
     type_icons = {
         "added": "➕",
@@ -184,11 +177,7 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
         "removed": "➖"
     }
 
-    overall_icon = impact_icons.get(analysis.get("overall_impact", "low"), "⚪")
-
     md = f"""## 🔍 Dify DSL 差分解析レポート
-
-### {overall_icon} 総合影響度: {analysis.get('overall_impact', 'unknown').upper()}
 
 **要約**: {analysis.get('summary', '差分が検出されました')}
 
@@ -221,13 +210,17 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
     else:
         for i, change in enumerate(changes, 1):
             type_icon = type_icons.get(change.get('type', ''), '❓')
-            impact_icon = impact_icons.get(change.get('impact', 'low'), '⚪')
+            yaml_path = change.get('yaml_path', change.get('area', 'unknown'))  # 後方互換性のため area もフォールバック
 
-            md += f"""#### {i}. {type_icon} {change.get('type', 'unknown').upper()} - {change.get('area', 'unknown')}
+            md += f"""#### {i}. {type_icon} {change.get('type', 'unknown').upper()} - `{yaml_path}`
 
-- **影響度**: {impact_icon} {change.get('impact', 'unknown').upper()}
-- **説明**: {change.get('description', '説明なし')}
 """
+
+            # 行番号の表示
+            if change.get('location'):
+                md += f"**行番号**: {change.get('location')}\n\n"
+
+            md += f"{change.get('description', '説明なし')}\n"
 
             # Before/After の値を表示
             if change.get('before_value') or change.get('after_value'):
@@ -242,7 +235,7 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
             if change.get('count', 1) > 1:
                 md += f"\n- **変更箇所数**: {change.get('count')} 箇所\n"
 
-            md += f"- **アクション**: {change.get('action', '確認推奨')}\n\n"
+            md += "\n"
 
     # パターン分析の追加
     patterns = analysis.get('patterns', [])
@@ -257,32 +250,6 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
         md += "\n"
 
     md += """---
-
-### 💡 推奨アクション
-
-"""
-
-    recommendation = analysis.get('recommendation', {})
-    if isinstance(recommendation, dict):
-        # 新しい構造化された推奨アクション
-        immediate_actions = recommendation.get('immediate_actions', [])
-        if immediate_actions:
-            md += "#### 🚨 即座に確認すべき項目\n\n"
-            for action in immediate_actions:
-                md += f"- [ ] {action}\n"
-            md += "\n"
-
-        review_questions = recommendation.get('review_questions', [])
-        if review_questions:
-            md += "#### 📝 レビュー時の確認事項\n\n"
-            for question in review_questions:
-                md += f"- {question}\n"
-            md += "\n"
-    else:
-        # 古い形式（文字列）への後方互換性
-        md += f"{recommendation}\n\n"
-
-    md += f"""---
 
 <details>
 <summary>📄 元の差分を表示</summary>
@@ -329,8 +296,7 @@ def main():
         result = {
             "summary": "差分が検出されませんでした",
             "changes": [],
-            "overall_impact": "low",
-            "recommendation": "変更はありません。"
+            "overall_impact": "low"
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(0)

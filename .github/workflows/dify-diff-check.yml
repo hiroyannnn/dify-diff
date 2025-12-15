@@ -6,12 +6,10 @@ on:
       - '**.yml'
       - '**.yaml'
       - '!**.norm.yml'  # .norm.yml の変更では実行しない（無限ループ防止）
+      - '!.github/**'   # GitHub Actions の YAML を除外
     branches:
       - main
       - master
-
-  # 手動実行も可能にする
-  workflow_dispatch:
 
 # 同じ PR で複数の workflow が走らないようにする
 concurrency:
@@ -46,10 +44,10 @@ jobs:
       - name: 📂 Find changed YAML files
         id: find-files
         run: |
-          # main ブランチとの差分で変更された YAML ファイルを検索（.norm.yml を除く）
+          # main ブランチとの差分で変更された YAML ファイルを検索（.norm.yml と .github/ を除く）
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
 
-          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD | grep -E '\.(yml|yaml)$' | grep -v '\.norm\.yml$' || true)
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD | grep -E '\.(yml|yaml)$' | grep -v '\.norm\.yml$' | grep -v '^\.github/' || true)
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "no_changes=true" >> $GITHUB_OUTPUT
@@ -72,9 +70,12 @@ jobs:
 
           while IFS= read -r file; do
             if [ -f "$file" ]; then
-              # .norm.yml ファイル名を生成
-              NORM_FILE="${file%.yml}.norm.yml"
-              NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
+              # .norm.yml ファイル名を生成（.yml または .yaml を .norm.yml に置換）
+              if [[ "$file" == *.yaml ]]; then
+                NORM_FILE="${file%.yaml}.norm.yml"
+              else
+                NORM_FILE="${file%.yml}.norm.yml"
+              fi
 
               echo "🔄 Normalizing $file → $NORM_FILE"
               python scripts/normalize_dify.py "$file" "$NORM_FILE"
@@ -134,12 +135,18 @@ jobs:
           while IFS= read -r file; do
             if [ -f "$file" ]; then
               BASENAME=$(basename "$file")
-              NORM_FILE="${file%.yml}.norm.yml"
-              NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
-              BASE_NORM_FILE="base_norm/${BASENAME%.yml}.norm.yml"
-              BASE_NORM_FILE="${BASE_NORM_FILE%.yaml}.norm.yml"
-              DIFF_FILE="diffs/${BASENAME%.yml}_diff.txt"
-              DIFF_FILE="${DIFF_FILE%.yaml}_diff.txt"
+
+              # ファイル名から拡張子を除去して .norm.yml を付与
+              if [[ "$file" == *.yaml ]]; then
+                NORM_FILE="${file%.yaml}.norm.yml"
+                BASE_NAME="${BASENAME%.yaml}"
+              else
+                NORM_FILE="${file%.yml}.norm.yml"
+                BASE_NAME="${BASENAME%.yml}"
+              fi
+
+              BASE_NORM_FILE="base_norm/${BASE_NAME}.norm.yml"
+              DIFF_FILE="diffs/${BASE_NAME}_diff.txt"
 
               echo "📊 Generating diff for $file..."
 
