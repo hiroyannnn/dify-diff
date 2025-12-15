@@ -5,7 +5,12 @@ app:
   mode: workflow
   name: diff-test
   use_icon_as_answer_icon: false
-dependencies: []
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/openai:0.2.7@9031bbf9b37d9f6341a20c78a8bd18d686afd3ff627545496c3557705419d084
+    version: null
 kind: app
 version: 0.5.0
 workflow:
@@ -57,7 +62,19 @@ workflow:
       language: ''
       voice: ''
   graph:
-    edges: []
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: parameter-extractor
+      id: 1765796151233-source-1765798761300-target
+      source: '1765796151233'
+      sourceHandle: source
+      target: '1765798761300'
+      targetHandle: target
+      type: custom
+      zIndex: 0
     nodes:
     - data:
         selected: false
@@ -126,6 +143,70 @@ workflow:
         y: 282
       positionAbsolute:
         x: 80
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        instruction: '# タスク説明
+
+          入力からプラットフォーム名を解析し、JSON配列として出力します。
+
+
+          ## 処理ルール
+
+          - 複数の区切り文字をサポート：カンマ、セミコロン、スペース、改行、"and"、"&"、"|"など。
+
+          - 一般的なプラットフォーム名のバリアントを標準化（twitter/X→Twitter、insta→Instagramなど）。
+
+          - 重複と無効なエントリを削除
+
+          - 未知だが合理的なプラットフォーム名を保持
+
+
+          ## 出力要件
+
+          - 成功：["Platform1", "Platform2"]
+
+          - プラットフォームが見つからない：[プラットフォームが識別されませんでした。有効なプラットフォーム名を入力してください。]
+
+
+          ## 例
+
+          - 入力："twitter, linkedin" → ["Twitter", "LinkedIn"]
+
+          - 入力："x and insta" → ["Twitter", "Instagram"]
+
+          - 入力："invalid content" → [プラットフォームが識別されませんでした。有効なプラットフォーム名を入力してください。]'
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: gpt-4o
+          provider: langgenius/openai/openai
+        parameters:
+        - description: ユーザーがカスタマイズされたコンテンツを作成したいプラットフォームを識別して抽出します。
+          name: platform
+          required: true
+          type: array[string]
+        query:
+        - '1765796151233'
+        - platform
+        reasoning_mode: prompt
+        selected: true
+        title: パラメータ抽出
+        type: parameter-extractor
+        vision:
+          enabled: false
+      height: 88
+      id: '1765798761300'
+      position:
+        x: 382
+        y: 282
+      positionAbsolute:
+        x: 382
         y: 282
       selected: false
       sourcePosition: right
