@@ -159,13 +159,12 @@ def analyze_diff_with_llm(diff_text: str, model: str = "gpt-4o-mini") -> dict:
         raise
 
 
-def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
+def format_analysis_as_markdown(analysis: dict) -> str:
     """
     解析結果を Markdown 形式に整形
 
     Args:
         analysis: LLM からの解析結果
-        diff_text: 元の差分テキスト
 
     Returns:
         Markdown 形式の文字列
@@ -200,7 +199,10 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
 
 """
 
-    md += """### 📋 変更一覧
+    md += """<details>
+<summary>📋 変更一覧を表示</summary>
+
+### 📋 変更一覧
 
 """
 
@@ -237,6 +239,8 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
 
             md += "\n"
 
+    md += "</details>\n\n"
+
     # パターン分析の追加
     patterns = analysis.get('patterns', [])
     if patterns:
@@ -250,17 +254,6 @@ def format_analysis_as_markdown(analysis: dict, diff_text: str) -> str:
         md += "\n"
 
     md += """---
-
-<details>
-<summary>📄 元の差分を表示</summary>
-
-```diff
-{diff_text}
-```
-
-</details>
-
----
 
 _🤖 この解析は LLM により自動生成されました_
 """
@@ -317,7 +310,7 @@ def main():
     print(json.dumps(analysis, ensure_ascii=False, indent=2))
 
     # Markdown 出力
-    markdown = format_analysis_as_markdown(analysis, diff_text)
+    markdown = format_analysis_as_markdown(analysis)
     output_path = diff_path.parent / f"{diff_path.stem}_analysis.md"
 
     try:
