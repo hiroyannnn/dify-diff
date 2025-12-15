@@ -6,11 +6,11 @@ app:
   name: chat
   use_icon_as_answer_icon: false
 dependencies:
-- current_identifier: null
+- current_identifier:
   type: marketplace
   value:
     marketplace_plugin_unique_identifier: langgenius/gemini:0.2.6@2a4ffc697957afb7734e7a5cfb780d5c819d216cc6e56798bffb95d28a032867
-    version: null
+    version:
 kind: app
 version: 0.5.0
 workflow:
@@ -19,12 +19,12 @@ workflow:
   features:
     file_upload:
       allowed_file_extensions:
-      - .JPG
-      - .JPEG
-      - .PNG
       - .GIF
-      - .WEBP
+      - .JPEG
+      - .JPG
+      - .PNG
       - .SVG
+      - .WEBP
       allowed_file_types:
       - image
       allowed_file_upload_methods:
@@ -89,27 +89,14 @@ workflow:
       target: '1765185537128'
       targetHandle: target
       type: custom
-      zIndex: 0
     nodes:
     - data:
         desc: ''
-        selected: false
         title: 開始
         type: start
         variables: []
-      height: 73
       id: '1751895512731'
-      position:
-        x: 80
-        y: 282
-      positionAbsolute:
-        x: 80
-        y: 282
-      selected: false
-      sourcePosition: right
-      targetPosition: left
       type: custom
-      width: 242
     - data:
         context:
           enabled: false
@@ -136,45 +123,21 @@ workflow:
         - id: 08dad10c-2f43-4eb9-ae4a-3b5fe2e90331
           role: system
           text: ''
-        selected: false
         title: LLM
         type: llm
         variables: []
         vision:
           enabled: false
-      height: 88
       id: llm
-      position:
-        x: 291
-        y: 128
-      positionAbsolute:
-        x: 291
-        y: 128
-      selected: false
-      sourcePosition: right
-      targetPosition: left
       type: custom
-      width: 242
     - data:
         answer: '{{#llm.text#}}'
         desc: ''
-        selected: false
         title: 回答
         type: answer
         variables: []
-      height: 103
       id: answer
-      position:
-        x: 407
-        y: 438
-      positionAbsolute:
-        x: 407
-        y: 438
-      selected: false
-      sourcePosition: right
-      targetPosition: left
       type: custom
-      width: 242
     - data:
         context:
           enabled: false
@@ -189,26 +152,10 @@ workflow:
         - id: b926b9d0-4427-4078-be2f-1b0d0f7f595d
           role: system
           text: hi
-        selected: true
         title: LLM 2
         type: llm
         vision:
           enabled: false
-      height: 88
       id: '1765185537128'
-      position:
-        x: 352
-        y: 327
-      positionAbsolute:
-        x: 352
-        y: 327
-      selected: true
-      sourcePosition: right
-      targetPosition: left
       type: custom
-      width: 242
-    viewport:
-      x: -181
-      y: 120
-      zoom: 1
   rag_pipeline_variables: []

@@ -3,15 +3,13 @@ name: Dify DSL Diff Check
 on:
   pull_request:
     paths:
-      - '**.yml'
-      - '**.yaml'
-      - '!**.norm.yml'  # .norm.yml の変更では実行しない（無限ループ防止）
+      - '**/*.yml'
+      - '**/*.yaml'
+      - '!**/*.norm.yml'  # .norm.yml の変更では実行しない（無限ループ防止）
+      - '!.github/**'   # GitHub Actions の YAML を除外
     branches:
       - main
       - master
-
-  # 手動実行も可能にする
-  workflow_dispatch:
 
 # 同じ PR で複数の workflow が走らないようにする
 concurrency:
@@ -46,10 +44,39 @@ jobs:
       - name: 📂 Find changed YAML files
         id: find-files
         run: |
-          # main ブランチとの差分で変更された YAML ファイルを検索（.norm.yml を除く）
+          # PRの差分 = merge-base(HEAD, base) から HEAD までの差分を使う
+          # base commit が checkout に含まれていない場合があるため、明示的に取得する
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
 
-          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD | grep -E '\.(yml|yaml)$' | grep -v '\.norm\.yml$' || true)
+          echo "📥 Fetching base branch origin/$BASE_REF..."
+          git fetch --no-tags origin "$BASE_REF"
+
+          BASE_REF_COMMIT="origin/$BASE_REF"
+          if ! git rev-parse --verify "$BASE_REF_COMMIT^{commit}" >/dev/null 2>&1; then
+            echo "::warning::Failed to fetch origin/$BASE_REF; falling back to base SHA"
+            BASE_REF_COMMIT="$BASE_SHA"
+            if ! git cat-file -e "$BASE_REF_COMMIT^{commit}" 2>/dev/null; then
+              echo "📥 Fetching base commit $BASE_REF_COMMIT..."
+              git fetch --no-tags origin "$BASE_REF_COMMIT"
+            fi
+          fi
+
+          MERGE_BASE="$(git merge-base HEAD "$BASE_REF_COMMIT" 2>/dev/null || true)"
+          if [ -z "$MERGE_BASE" ]; then
+            echo "::warning::Failed to compute merge-base; falling back to base SHA"
+            MERGE_BASE="$BASE_SHA"
+          fi
+
+          echo "base_commit=$MERGE_BASE" >> "$GITHUB_OUTPUT"
+
+          CHANGED_FILES=$(
+            git diff --name-only "$MERGE_BASE" HEAD \
+              | grep -E '\.(yml|yaml)$' \
+              | grep -v '\.norm\.yml$' \
+              | grep -v '^\.github/' \
+              || true
+          )
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "no_changes=true" >> $GITHUB_OUTPUT
@@ -68,41 +95,127 @@ jobs:
         if: steps.find-files.outputs.no_changes != 'true'
         id: normalize
         run: |
-          HAS_NEW_NORM=false
+          HAS_NORM_CHANGES=false
 
           while IFS= read -r file; do
             if [ -f "$file" ]; then
-              # .norm.yml ファイル名を生成
-              NORM_FILE="${file%.yml}.norm.yml"
-              NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
+              # .norm.yml ファイル名を生成（.yml または .yaml を .norm.yml に置換）
+              if [[ "$file" == *.yaml ]]; then
+                NORM_FILE="${file%.yaml}.norm.yml"
+              else
+                NORM_FILE="${file%.yml}.norm.yml"
+              fi
 
               echo "🔄 Normalizing $file → $NORM_FILE"
               python scripts/normalize_dify.py "$file" "$NORM_FILE"
 
-              # 新しく生成されたか、または変更があるかチェック
-              if ! git diff --quiet "$NORM_FILE" 2>/dev/null; then
-                HAS_NEW_NORM=true
+              # 新規(未追跡) or 変更あり(追跡済み) を検知
+              if [ -n "$(git status --porcelain=v1 -- "$NORM_FILE")" ]; then
+                HAS_NORM_CHANGES=true
               fi
             fi
           done <<< "${{ steps.find-files.outputs.changed_files }}"
 
-          echo "has_new_norm=$HAS_NEW_NORM" >> $GITHUB_OUTPUT
+          echo "has_norm_changes=$HAS_NORM_CHANGES" >> $GITHUB_OUTPUT
+
+      - name: 📊 Generate diff for LLM analysis
+        if: steps.find-files.outputs.no_changes != 'true'
+        id: diff
+        run: |
+          mkdir -p diffs
+          mkdir -p base_norm
+
+          BASE_COMMIT="${{ steps.find-files.outputs.base_commit }}"
+
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              SAFE_NAME="$(echo "$file" | sed 's|/|__|g')"
+
+              # ファイル名から拡張子を除去して .norm.yml を付与
+              if [[ "$file" == *.yaml ]]; then
+                HEAD_NORM_FILE="${file%.yaml}.norm.yml"
+              else
+                HEAD_NORM_FILE="${file%.yml}.norm.yml"
+              fi
+
+              BASE_YML_FILE="base_norm/${SAFE_NAME}.yml"
+              BASE_NORM_FILE="base_norm/${SAFE_NAME}.norm.yml"
+              DIFF_FILE="diffs/${SAFE_NAME}_diff.txt"
+
+              echo "📊 Generating diff for $file..."
+
+              # base側に既に .norm.yml があればそれを使い、なければ base側の .yml を正規化して作る
+              if git cat-file -e "$BASE_COMMIT":"$HEAD_NORM_FILE" 2>/dev/null; then
+                echo "  📥 Fetching base normalized file..."
+                git show "$BASE_COMMIT":"$HEAD_NORM_FILE" > "$BASE_NORM_FILE"
+              elif git cat-file -e "$BASE_COMMIT":"$file" 2>/dev/null; then
+                echo "  📥 Fetching base version of $file..."
+                git show "$BASE_COMMIT":"$file" > "$BASE_YML_FILE"
+
+                echo "  🔄 Normalizing base version..."
+                python scripts/normalize_dify.py "$BASE_YML_FILE" "$BASE_NORM_FILE"
+              else
+                BASE_NORM_FILE=""
+              fi
+
+              if [ -n "$BASE_NORM_FILE" ] && [ -f "$HEAD_NORM_FILE" ] && [ -f "$BASE_NORM_FILE" ]; then
+                echo "  ⚖️  Comparing normalized files..."
+                diff -u "$BASE_NORM_FILE" "$HEAD_NORM_FILE" > "$DIFF_FILE" || true
+
+                if [ -s "$DIFF_FILE" ]; then
+                  LINE_COUNT=$(wc -l < "$DIFF_FILE")
+                  echo "  ✅ Diff generated: $DIFF_FILE ($LINE_COUNT lines)"
+                else
+                  echo "  ℹ️  No diff after normalization"
+                  rm -f "$DIFF_FILE"
+                fi
+              else
+                echo "  ℹ️  New file detected, treating as full addition"
+                if [ -f "$HEAD_NORM_FILE" ]; then
+                  echo "--- /dev/null" > "$DIFF_FILE"
+                  echo "+++ $HEAD_NORM_FILE" >> "$DIFF_FILE"
+                  sed 's/^/+/' "$HEAD_NORM_FILE" >> "$DIFF_FILE"
+                  echo "  ✅ Diff generated: $DIFF_FILE (new file)"
+                fi
+              fi
+            fi
+          done <<< "${{ steps.find-files.outputs.changed_files }}"
+
+          # 生成された差分ファイルの数を確認
+          DIFF_COUNT=$(find diffs -type f -name '*_diff.txt' | wc -l | tr -d ' ')
+          echo "📊 Total diffs generated: $DIFF_COUNT"
+
+          if [ "$DIFF_COUNT" -eq 0 ]; then
+            echo "has_meaningful_diff=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_meaningful_diff=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: 💾 Commit normalized files
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.normalize.outputs.has_norm_changes == 'true' && steps.diff.outputs.has_meaningful_diff == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          git add *.norm.yml
+          while IFS= read -r file; do
+            if [[ "$file" == *.yaml ]]; then
+              NORM_FILE="${file%.yaml}.norm.yml"
+            else
+              NORM_FILE="${file%.yml}.norm.yml"
+            fi
+
+            if [ -f "$NORM_FILE" ]; then
+              git add -- "$NORM_FILE"
+            fi
+          done <<< "${{ steps.find-files.outputs.changed_files }}"
           git commit -m "chore: Update normalized DSL files [skip ci]" || echo "Nothing to commit"
 
-          git push
+          git push origin HEAD:${{ github.head_ref }}
 
           echo "✅ Normalized files committed and pushed"
 
       - name: 💬 Comment about normalization
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.normalize.outputs.has_norm_changes == 'true' && steps.diff.outputs.has_meaningful_diff == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -122,46 +235,8 @@ jobs:
               body: comment
             });
 
-      - name: 📊 Generate diff for LLM analysis
-        if: steps.normalize.outputs.has_new_norm == 'true'
-        id: diff
-        run: |
-          mkdir -p diffs
-
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-
-          while IFS= read -r file; do
-            if [ -f "$file" ]; then
-              NORM_FILE="${file%.yml}.norm.yml"
-              NORM_FILE="${NORM_FILE%.yaml}.norm.yml"
-
-              if [ -f "$NORM_FILE" ]; then
-                BASENAME=$(basename "$file")
-                DIFF_FILE="diffs/${BASENAME%.yml}_diff.txt"
-
-                echo "📊 Generating diff for $NORM_FILE..."
-
-                # base ブランチの .norm.yml と比較
-                if git cat-file -e $BASE_SHA:"$NORM_FILE" 2>/dev/null; then
-                  git diff $BASE_SHA HEAD -- "$NORM_FILE" > "$DIFF_FILE" || true
-                else
-                  # 新規ファイルの場合は全体を diff として扱う
-                  echo "--- /dev/null" > "$DIFF_FILE"
-                  echo "+++ $NORM_FILE" >> "$DIFF_FILE"
-                  cat "$NORM_FILE" | sed 's/^/+/' >> "$DIFF_FILE"
-                fi
-
-                if [ -s "$DIFF_FILE" ]; then
-                  echo "✅ Diff generated: $DIFF_FILE"
-                else
-                  rm "$DIFF_FILE"
-                fi
-              fi
-            fi
-          done <<< "${{ steps.find-files.outputs.changed_files }}"
-
       - name: 🤖 Analyze diff with LLM
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.diff.outputs.has_meaningful_diff == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_MODEL: gpt-4o-mini
@@ -174,7 +249,7 @@ jobs:
           done
 
       - name: 💬 Comment LLM analysis
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.diff.outputs.has_meaningful_diff == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -224,14 +299,46 @@ jobs:
               }
             }
 
-      - name: ✅ No changes detected
-        if: steps.find-files.outputs.no_changes == 'true' || steps.normalize.outputs.has_new_norm != 'true'
+      - name: ✅ No YAML files changed
+        if: steps.find-files.outputs.no_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = '## ℹ️ Dify DSL 差分チェック\n\n' +
+              'このPRではDify DSL（`.yml`/`.yaml`）ファイルの変更がありません。\n\n' +
+              '_チェック対象: `.yml`, `.yaml` ファイル（`.norm.yml` を除く）_\n';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+
+      - name: ℹ️ UI metadata only changes
+        if: steps.find-files.outputs.no_changes != 'true' && steps.diff.outputs.has_meaningful_diff != 'true'
         uses: actions/github-script@v7
         with:
           script: |
             const comment = '## ✅ Dify DSL 差分チェック完了\n\n' +
-              '正規化後の差分は検出されませんでした。\n\n' +
-              '_UI メタデータのみの変更、または変更なし_\n';
+              '**結果**: 正規化後の差分は **0行** でした。\n\n' +
+              '### 📊 判定理由\n\n' +
+              'このPRの変更は以下のいずれかです：\n' +
+              '- 🎨 **UI メタデータのみの変更**（`position`, `selected`, `viewport` など）\n' +
+              '- 📏 **フォーマットのみの変更**（インデント、改行など）\n\n' +
+              '### ✅ 影響評価\n\n' +
+              '**処理ロジックへの影響: なし**\n\n' +
+              'これらの変更は Dify の実行結果に影響しません。安全にマージできます。\n\n' +
+              '---\n\n' +
+              '<details>\n' +
+              '<summary>📖 詳細説明</summary>\n\n' +
+              '正規化処理では以下のフィールドを除外しています：\n' +
+              '- `position`, `positionAbsolute` - ノードの座標\n' +
+              '- `width`, `height` - ノードのサイズ\n' +
+              '- `selected`, `zIndex` - UI の選択状態\n' +
+              '- `viewport` - Canvas の表示位置\n\n' +
+              'これらを除外した結果、差分がなくなったため、**UI レイアウトのみの変更**と判定されました。\n' +
+              '</details>\n';
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -241,9 +348,11 @@ jobs:
             });
 
       - name: 📤 Upload artifacts
-        if: steps.normalize.outputs.has_new_norm == 'true'
+        if: steps.diff.outputs.has_meaningful_diff == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dify-diff-analysis
-          path: diffs/
+          path: |
+            diffs/
+            base_norm/
           retention-days: 7
