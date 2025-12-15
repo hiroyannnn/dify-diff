@@ -9,7 +9,7 @@ Usage:
 
 Environment Variables:
     OPENAI_API_KEY: OpenAI API キー（必須）
-    LLM_MODEL: 使用するモデル（デフォルト: gpt-4o-mini）
+    LLM_MODEL: 使用するモデル（デフォルト: gpt-5.1）
 """
 
 import os
@@ -295,7 +295,7 @@ def main():
         sys.exit(0)
 
     # LLM で解析
-    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    model = os.getenv("LLM_MODEL", "gpt-5.1")
 
     try:
         analysis = analyze_diff_with_llm(diff_text, model)
