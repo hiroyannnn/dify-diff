@@ -239,7 +239,7 @@ jobs:
         if: steps.diff.outputs.has_meaningful_diff == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LLM_MODEL: gpt-4o-mini
+          LLM_MODEL: gpt-5.1
         run: |
           for diff_file in diffs/*_diff.txt; do
             if [ -f "$diff_file" ]; then
