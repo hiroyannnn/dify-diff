@@ -81,11 +81,7 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
    - 変更の対象範囲（YAML パスのプレフィックス等）を明記
    - 単なる差分列挙は避け、PR レビューで論点になる単位にまとめる
 
-7. **パターンを検出**
-   - 一括変更や機械的変更など、繰り返しパターンのみを記載
-   - 要約やレビュー用の要点の言い換えは避ける
-
-8. **変更一覧は適度にまとめる**
+7. **変更一覧は適度にまとめる**
    - 1行単位の羅列は避け、同種の変更は1項目にまとめる
 
 # 出力形式
@@ -122,12 +118,6 @@ JSON 形式で以下の構造を返してください：
       "before_value": "変更前の具体的な値（該当する場合）",
       "after_value": "変更後の具体的な値（該当する場合）",
       "count": 1
-    }
-  ],
-  "patterns": [
-    {
-      "description": "検出されたパターン（例: 一括変更、プロバイダー移行）",
-      "occurrences": <そのパターンが実際に出現した回数>
     }
   ]
 }
@@ -218,7 +208,7 @@ def format_analysis_as_markdown(analysis: dict) -> str:
 
     review_points = analysis.get('review_points', [])
     if review_points:
-        md += "### ✅ レビュー用の変更点\n\n"
+        md += "### 🧭 変更点の要点\n\n"
         for point in review_points:
             title = point.get('title', '変更点')
             details = point.get('details')
@@ -276,18 +266,6 @@ def format_analysis_as_markdown(analysis: dict) -> str:
             md += "\n"
 
     md += "</details>\n\n"
-
-    # パターン分析の追加
-    patterns = analysis.get('patterns', [])
-    if patterns:
-        md += """---
-
-### 🔁 繰り返し変更パターン
-
-"""
-        for pattern in patterns:
-            md += f"- **{pattern.get('description', '不明なパターン')}**: {pattern.get('occurrences', 0)} 箇所\n"
-        md += "\n"
 
     md += """---
 
