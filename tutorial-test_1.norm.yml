@@ -74,6 +74,28 @@ workflow:
       target: '1765798761300'
       targetHandle: target
       type: custom
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: parameter-extractor
+        targetType: if-else
+      id: 1765798761300-source-1765799708483-target
+      source: '1765798761300'
+      sourceHandle: source
+      target: '1765799708483'
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: end
+      id: 1765799708483-true-1765799913018-target
+      source: '1765799708483'
+      sourceHandle: 'true'
+      target: '1765799913018'
+      targetHandle: target
+      type: custom
     nodes:
     - data:
         title: ユーザー入力
@@ -187,5 +209,33 @@ workflow:
         vision:
           enabled: false
       id: '1765798761300'
+      type: custom
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: contains
+            id: a662b884-d568-4194-a8b6-c7f9a6e6ada5
+            value: プラットフォームが識別されませんでした。有効なプラットフォーム名を入力してください。
+            varType: array[string]
+            variable_selector:
+            - '1765798761300'
+            - platform
+          id: 'true'
+          logical_operator: and
+        title: IF/ELSE
+        type: if-else
+      id: '1765799708483'
+      type: custom
+    - data:
+        outputs:
+        - value_selector:
+          - '1765798761300'
+          - platform
+          value_type: array[string]
+          variable: platform
+        title: 出力
+        type: end
+      id: '1765799913018'
       type: custom
   rag_pipeline_variables: []
