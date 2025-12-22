@@ -75,6 +75,30 @@ workflow:
       targetHandle: target
       type: custom
       zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: parameter-extractor
+        targetType: if-else
+      id: 1765798761300-source-1765799708483-target
+      source: '1765798761300'
+      sourceHandle: source
+      target: '1765799708483'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: end
+      id: 1765799708483-true-1765799913018-target
+      source: '1765799708483'
+      sourceHandle: 'true'
+      target: '1765799913018'
+      targetHandle: target
+      type: custom
+      zIndex: 0
     nodes:
     - data:
         selected: false
@@ -195,7 +219,7 @@ workflow:
         - '1765796151233'
         - platform
         reasoning_mode: prompt
-        selected: true
+        selected: false
         title: パラメータ抽出
         type: parameter-extractor
         vision:
@@ -213,8 +237,60 @@ workflow:
       targetPosition: left
       type: custom
       width: 242
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: contains
+            id: a662b884-d568-4194-a8b6-c7f9a6e6ada5
+            value: プラットフォームが識別されませんでした。有効なプラットフォーム名を入力してください。
+            varType: array[string]
+            variable_selector:
+            - '1765798761300'
+            - platform
+          id: 'true'
+          logical_operator: and
+        selected: false
+        title: IF/ELSE
+        type: if-else
+      height: 124
+      id: '1765799708483'
+      position:
+        x: 684
+        y: 282
+      positionAbsolute:
+        x: 684
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        outputs:
+        - value_selector:
+          - '1765798761300'
+          - platform
+          value_type: array[string]
+          variable: platform
+        selected: true
+        title: 出力
+        type: end
+      height: 88
+      id: '1765799913018'
+      position:
+        x: 989
+        y: 314
+      positionAbsolute:
+        x: 989
+        y: 314
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
     viewport:
       x: 0
-      y: 0
+      y: -1
       zoom: 1
   rag_pipeline_variables: []
