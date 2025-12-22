@@ -141,6 +141,7 @@ jobs:
               BASE_YML_FILE="base_norm/${SAFE_NAME}.yml"
               BASE_NORM_FILE="base_norm/${SAFE_NAME}.norm.yml"
               DIFF_FILE="diffs/${SAFE_NAME}_diff.txt"
+              PATHS_FILE="diffs/${SAFE_NAME}.paths"
 
               echo "📊 Generating diff for $file..."
 
@@ -165,17 +166,29 @@ jobs:
                 if [ -s "$DIFF_FILE" ]; then
                   LINE_COUNT=$(wc -l < "$DIFF_FILE")
                   echo "  ✅ Diff generated: $DIFF_FILE ($LINE_COUNT lines)"
+                  echo "before=$BASE_NORM_FILE" > "$PATHS_FILE"
+                  echo "after=$HEAD_NORM_FILE" >> "$PATHS_FILE"
                 else
                   echo "  ℹ️  No diff after normalization"
                   rm -f "$DIFF_FILE"
+                  rm -f "$PATHS_FILE"
                 fi
               else
                 echo "  ℹ️  New file detected, treating as full addition"
                 if [ -f "$HEAD_NORM_FILE" ]; then
+                  BASE_NORM_FILE="base_norm/${SAFE_NAME}.norm.yml"
+                  cat > "$BASE_NORM_FILE" <<'EOF'
+workflow:
+  graph:
+    nodes: []
+    edges: []
+EOF
                   echo "--- /dev/null" > "$DIFF_FILE"
                   echo "+++ $HEAD_NORM_FILE" >> "$DIFF_FILE"
                   sed 's/^/+/' "$HEAD_NORM_FILE" >> "$DIFF_FILE"
                   echo "  ✅ Diff generated: $DIFF_FILE (new file)"
+                  echo "before=$BASE_NORM_FILE" > "$PATHS_FILE"
+                  echo "after=$HEAD_NORM_FILE" >> "$PATHS_FILE"
                 fi
               fi
             fi
@@ -244,7 +257,22 @@ jobs:
           for diff_file in diffs/*_diff.txt; do
             if [ -f "$diff_file" ]; then
               echo "🤖 Analyzing $diff_file with LLM..."
-              python scripts/llm_diff_analyzer.py "$diff_file" || echo "⚠️  LLM analysis failed for $diff_file"
+              PATHS_FILE="${diff_file%_diff.txt}.paths"
+              BEFORE_PATH=""
+              AFTER_PATH=""
+              if [ -f "$PATHS_FILE" ]; then
+                while IFS='=' read -r key value; do
+                  case "$key" in
+                    before) BEFORE_PATH="$value" ;;
+                    after) AFTER_PATH="$value" ;;
+                  esac
+                done < "$PATHS_FILE"
+              fi
+              if [ -n "$BEFORE_PATH" ] && [ -n "$AFTER_PATH" ] && [ -f "$BEFORE_PATH" ] && [ -f "$AFTER_PATH" ]; then
+                python scripts/llm_diff_analyzer.py "$diff_file" --before "$BEFORE_PATH" --after "$AFTER_PATH" || echo "⚠️  LLM analysis failed for $diff_file"
+              else
+                python scripts/llm_diff_analyzer.py "$diff_file" || echo "⚠️  LLM analysis failed for $diff_file"
+              fi
             fi
           done
 
