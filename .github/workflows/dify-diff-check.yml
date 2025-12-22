@@ -7,9 +7,9 @@ on:
       - '**/*.yaml'
       - '!**/*.norm.yml'  # .norm.yml の変更では実行しない（無限ループ防止）
       - '!.github/**'   # GitHub Actions の YAML を除外
-    branches:
-      - main
-      - master
+    # branches:
+      # - main
+      # - master
 
 # 同じ PR で複数の workflow が走らないようにする
 concurrency:
