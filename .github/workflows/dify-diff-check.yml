@@ -177,12 +177,7 @@ jobs:
                 echo "  ℹ️  New file detected, treating as full addition"
                 if [ -f "$HEAD_NORM_FILE" ]; then
                   BASE_NORM_FILE="base_norm/${SAFE_NAME}.norm.yml"
-                  cat > "$BASE_NORM_FILE" <<'EOF'
-workflow:
-  graph:
-    nodes: []
-    edges: []
-EOF
+                  printf 'workflow:\n  graph:\n    nodes: []\n    edges: []\n' > "$BASE_NORM_FILE"
                   echo "--- /dev/null" > "$DIFF_FILE"
                   echo "+++ $HEAD_NORM_FILE" >> "$DIFF_FILE"
                   sed 's/^/+/' "$HEAD_NORM_FILE" >> "$DIFF_FILE"
