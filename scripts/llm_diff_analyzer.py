@@ -26,7 +26,7 @@ except ImportError:
 
 
 SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です。
-変更内容を事実ベースで分かりやすく整理し、ユーザーが YAML diff を読む前に概要を把握できるようにしてください。
+変更内容を事実ベースで分かりやすく整理し、ユーザーが YAML diff を読む前に概要とレビュー観点の変更点を把握できるようにしてください。
 
 # 無視すべき差分（UI メタデータ）
 - position, positionAbsolute (ノード座標)
@@ -50,8 +50,10 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
 # 解析時の必須要件
 
 1. **YAMLパスを明記**
-   - 変更箇所をYAMLパス表記で示す（例: `workflow.graph.edges[0]`, `workflow.graph.nodes[2].data.type`）
-   - 配列のインデックスは実際の位置を示す（0始まり）
+   - 変更箇所をYAMLパス表記で示す
+     - 単一変更: `workflow.graph.edges[0]`, `workflow.graph.nodes[2].data.type`
+     - まとめ変更: `workflow.graph.nodes[].data.model.name` のように配列をまとめて示す
+   - 単一変更では配列のインデックスは実際の位置を示す（0始まり）
    - ネストした構造も明確に表現
 
 2. **差分の行番号を抽出**
@@ -60,12 +62,11 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
    - 例: "L142-L145" のような形式で表示
 
 3. **具体的な値を抽出**
-   - 変更前の値（Before）と変更後の値（After）を明示
-   - 例: "gemini-2.5-flash-preview-05-20 → gemini-2.5-flash"
+   - `changes.before_value` と `changes.after_value` に具体値を入れる
+   - `changes.description` では影響が伝わる短い説明を添える
 
 4. **変更箇所数をカウント**
-   - 同じ変更が複数箇所にある場合は件数を明記
-   - 例: "10個のLLMノードで変更"
+   - 同様の変更が複数箇所にある場合は `count` で件数を明記
 
 5. **統計情報を計算**
    - 差分の総行数（+ と - で始まる行を実際に数える）
@@ -73,11 +74,19 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
    - 削除行数（- で始まる行を実際に数える）
    - 影響を受けるノード数（title フィールドの変更を実際に数える）
    - 影響を受けるエッジ数（edges 配列の変更を実際に数える）
-   - ⚠️ 例の数値をそのまま使わないでください。必ず実際の差分から計算してください。
 
-6. **パターンを検出**
-   - 一括変更の可能性（同じ変更が複数箇所）
-   - 関連する変更のグループ化
+6. **レビュー用の要点を作成**
+   - 要約より詳細で、変更一覧より抽象度を上げる
+   - 変更点を 3〜10 件の箇条書きで整理
+   - 変更の対象範囲（YAML パスのプレフィックス等）を明記
+   - 単なる差分列挙は避け、PR レビューで論点になる単位にまとめる
+
+7. **パターンを検出**
+   - 一括変更や機械的変更など、繰り返しパターンのみを記載
+   - 要約やレビュー用の要点の言い換えは避ける
+
+8. **変更一覧は適度にまとめる**
+   - 1行単位の羅列は避け、同種の変更は1項目にまとめる
 
 # 出力形式
 JSON 形式で以下の構造を返してください：
@@ -89,6 +98,14 @@ JSON 形式で以下の構造を返してください：
 
 {
   "summary": "変更内容の要約（日本語、1-2文、具体的な技術用語を含める）",
+  "review_points": [
+    {
+      "title": "レビュー用の変更点（短く）",
+      "details": "変更の中身を1-2文で具体化（Before/Afterや影響範囲が分かるように）",
+      "scope": "主な対象範囲の YAML パス（プレフィックス可）",
+      "count": 1
+    }
+  ],
   "statistics": {
     "total_diff_lines": <実際の差分行数（+ または - で始まる行の総数）>,
     "added_lines": <+ で始まる行の実際の数（例: +   title: など）>,
@@ -101,7 +118,7 @@ JSON 形式で以下の構造を返してください：
       "type": "added|modified|removed",
       "yaml_path": "workflow.graph.nodes[0].data.model.name",
       "location": "変更箇所の行番号（例: L142-L145）",
-      "description": "具体的な変更内容（Before → After の形式で記載）",
+      "description": "具体的な変更内容（短い説明）",
       "before_value": "変更前の具体的な値（該当する場合）",
       "after_value": "変更後の具体的な値（該当する場合）",
       "count": 1
@@ -199,6 +216,25 @@ def format_analysis_as_markdown(analysis: dict) -> str:
 
 """
 
+    review_points = analysis.get('review_points', [])
+    if review_points:
+        md += "### ✅ レビュー用の変更点\n\n"
+        for point in review_points:
+            title = point.get('title', '変更点')
+            details = point.get('details')
+            scope = point.get('scope')
+            count = point.get('count')
+
+            line = f"- **{title}**"
+            if scope:
+                line += f" (`{scope}`)"
+            if isinstance(count, int) and count > 1:
+                line += f" ×{count}"
+            if details:
+                line += f": {details}"
+            md += f"{line}\n"
+        md += "\n---\n\n"
+
     md += """<details>
 <summary>📋 変更一覧を表示</summary>
 
@@ -246,7 +282,7 @@ def format_analysis_as_markdown(analysis: dict) -> str:
     if patterns:
         md += """---
 
-### 🔍 検出されたパターン
+### 🔁 繰り返し変更パターン
 
 """
         for pattern in patterns:
