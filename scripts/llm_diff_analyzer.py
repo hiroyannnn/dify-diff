@@ -68,27 +68,19 @@ SYSTEM_PROMPT = """あなたは Dify DSL の差分を解析する専門家です
 4. **変更箇所数をカウント**
    - 同様の変更が複数箇所にある場合は `count` で件数を明記
 
-5. **統計情報を計算**
-   - 差分の総行数（+ と - で始まる行を実際に数える）
-   - 追加行数（+ で始まる行を実際に数える）
-   - 削除行数（- で始まる行を実際に数える）
-   - 影響を受けるノード数（title フィールドの変更を実際に数える）
-   - 影響を受けるエッジ数（edges 配列の変更を実際に数える）
-
-6. **レビュー用の要点を作成**
+5. **レビュー用の要点を作成**
    - 要約より詳細で、変更一覧より抽象度を上げる
    - 変更点を 3〜10 件の箇条書きで整理
    - 変更の対象範囲（YAML パスのプレフィックス等）を明記
    - 単なる差分列挙は避け、PR レビューで論点になる単位にまとめる
 
-7. **変更一覧は適度にまとめる**
+6. **変更一覧は適度にまとめる**
    - 1行単位の羅列は避け、同種の変更は1項目にまとめる
 
 # 出力形式
 JSON 形式で以下の構造を返してください：
 
 ⚠️ **重要**:
-- statistics の値は必ず実際の差分から数えてください。例の数値を使わないでください。
 - アドバイスや推奨事項は含めないでください。事実のみを記載してください。
 - yaml_path は具体的な階層構造を示してください（例: workflow.graph.nodes[0].data.model.name）
 
@@ -102,13 +94,6 @@ JSON 形式で以下の構造を返してください：
       "count": 1
     }
   ],
-  "statistics": {
-    "total_diff_lines": <実際の差分行数（+ または - で始まる行の総数）>,
-    "added_lines": <+ で始まる行の実際の数（例: +   title: など）>,
-    "removed_lines": <- で始まる行の実際の数（例: -   title: など）>,
-    "affected_nodes": <title フィールドが追加または削除されたノードの実際の数>,
-    "affected_edges": <id フィールドに -source- を含むエッジの追加・削除の実際の数>
-  },
   "changes": [
     {
       "type": "added|modified|removed",
@@ -191,24 +176,9 @@ def format_analysis_as_markdown(analysis: dict) -> str:
 
 """
 
-    # 統計情報の追加
-    stats = analysis.get('statistics', {})
-    if stats:
-        md += f"""### 📊 変更統計
-
-- **総差分行数**: {stats.get('total_diff_lines', 'N/A')} 行
-- **追加**: {stats.get('added_lines', 'N/A')} 行
-- **削除**: {stats.get('removed_lines', 'N/A')} 行
-- **影響を受けるノード数**: {stats.get('affected_nodes', 'N/A')} 個
-- **影響を受けるエッジ数**: {stats.get('affected_edges', 'N/A')} 個
-
----
-
-"""
-
     review_points = analysis.get('review_points', [])
     if review_points:
-        md += "### 🧭 変更点の要点\n\n"
+        md += "### 🧭 変更の要点\n\n"
         for point in review_points:
             title = point.get('title', '変更点')
             details = point.get('details')
