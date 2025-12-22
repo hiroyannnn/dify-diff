@@ -99,6 +99,30 @@ workflow:
       targetHandle: target
       type: custom
       zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: list-operator
+      id: 1765799708483-false-1765800180721-target
+      source: '1765799708483'
+      sourceHandle: 'false'
+      target: '1765800180721'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: list-operator
+      id: 1765799708483-false-1765800187153-target
+      source: '1765799708483'
+      sourceHandle: 'false'
+      target: '1765800187153'
+      targetHandle: target
+      type: custom
+      zIndex: 0
     nodes:
     - data:
         selected: false
@@ -273,7 +297,7 @@ workflow:
           - platform
           value_type: array[string]
           variable: platform
-        selected: true
+        selected: false
         title: 出力
         type: end
       height: 88
@@ -284,6 +308,84 @@ workflow:
       positionAbsolute:
         x: 989
         y: 314
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        extract_by:
+          enabled: false
+          serial: '1'
+        filter_by:
+          conditions:
+          - comparison_operator: in
+            key: type
+            value:
+            - image
+          enabled: true
+        item_var_type: file
+        limit:
+          enabled: false
+          size: 10
+        order_by:
+          enabled: false
+          key: ''
+          value: asc
+        selected: false
+        title: 画像
+        type: list-operator
+        var_type: array[file]
+        variable:
+        - '1765796151233'
+        - user_file
+      height: 92
+      id: '1765800180721'
+      position:
+        x: 989
+        y: 441
+      positionAbsolute:
+        x: 989
+        y: 441
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        extract_by:
+          enabled: false
+          serial: '1'
+        filter_by:
+          conditions:
+          - comparison_operator: in
+            key: type
+            value:
+            - document
+          enabled: true
+        item_var_type: file
+        limit:
+          enabled: false
+          size: 10
+        order_by:
+          enabled: false
+          key: ''
+          value: asc
+        selected: true
+        title: ドキュメント
+        type: list-operator
+        var_type: array[file]
+        variable:
+        - '1765796151233'
+        - user_file
+      height: 92
+      id: '1765800187153'
+      position:
+        x: 989
+        y: 576
+      positionAbsolute:
+        x: 989
+        y: 576
       selected: true
       sourcePosition: right
       targetPosition: left
@@ -291,6 +393,6 @@ workflow:
       width: 242
     viewport:
       x: 0
-      y: -1
+      y: 0
       zoom: 1
   rag_pipeline_variables: []

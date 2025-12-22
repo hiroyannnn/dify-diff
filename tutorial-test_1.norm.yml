@@ -96,6 +96,28 @@ workflow:
       target: '1765799913018'
       targetHandle: target
       type: custom
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: list-operator
+      id: 1765799708483-false-1765800180721-target
+      source: '1765799708483'
+      sourceHandle: 'false'
+      target: '1765800180721'
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: list-operator
+      id: 1765799708483-false-1765800187153-target
+      source: '1765799708483'
+      sourceHandle: 'false'
+      target: '1765800187153'
+      targetHandle: target
+      type: custom
     nodes:
     - data:
         title: ユーザー入力
@@ -237,5 +259,59 @@ workflow:
         title: 出力
         type: end
       id: '1765799913018'
+      type: custom
+    - data:
+        extract_by:
+          enabled: false
+          serial: '1'
+        filter_by:
+          conditions:
+          - comparison_operator: in
+            key: type
+            value:
+            - image
+          enabled: true
+        item_var_type: file
+        limit:
+          enabled: false
+          size: 10
+        order_by:
+          enabled: false
+          key: ''
+          value: asc
+        title: 画像
+        type: list-operator
+        var_type: array[file]
+        variable:
+        - '1765796151233'
+        - user_file
+      id: '1765800180721'
+      type: custom
+    - data:
+        extract_by:
+          enabled: false
+          serial: '1'
+        filter_by:
+          conditions:
+          - comparison_operator: in
+            key: type
+            value:
+            - document
+          enabled: true
+        item_var_type: file
+        limit:
+          enabled: false
+          size: 10
+        order_by:
+          enabled: false
+          key: ''
+          value: asc
+        title: ドキュメント
+        type: list-operator
+        var_type: array[file]
+        variable:
+        - '1765796151233'
+        - user_file
+      id: '1765800187153'
       type: custom
   rag_pipeline_variables: []
